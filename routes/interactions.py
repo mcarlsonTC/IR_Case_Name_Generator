@@ -115,19 +115,7 @@ def handle_edit_members(request_id: str, trigger_id: str):
 
     excluded = pending.get("excluded_members", [])
     dart_member_ids = get_dart_members()
-    members_with_names = get_member_display_names(dart_member_ids)
-
-    options = []
-    initial_options = []
-
-    for member in members_with_names:
-        option = {
-            "text": {"type": "plain_text", "text": member["display_name"]},
-            "value": member["slack_id"]
-        }
-        options.append(option)
-        if member["slack_id"] not in excluded:
-            initial_options.append(option)
+    initial_users = [m for m in dart_member_ids if m not in excluded]
 
     try:
         get_client().views_open(
@@ -143,7 +131,7 @@ def handle_edit_members(request_id: str, trigger_id: str):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "Uncheck members to exclude from the IR channel:"
+                            "text": "Select members to include in the IR channel:"
                         }
                     },
                     {
@@ -152,10 +140,10 @@ def handle_edit_members(request_id: str, trigger_id: str):
                         "optional": True,
                         "label": {"type": "plain_text", "text": "Members to invite"},
                         "element": {
-                            "type": "checkboxes",
-                            "action_id": "members_checkboxes",
-                            "options": options,
-                            "initial_options": initial_options
+                            "type": "multi_users_select",
+                            "action_id": "members_select",
+                            "placeholder": {"type": "plain_text", "text": "Select members..."},
+                            "initial_users": initial_users
                         }
                     }
                 ]
@@ -172,7 +160,7 @@ def handle_custom_name(request_id: str, custom_name: str):
     sanitized = custom_name.lower().strip().replace(" ", "-")
     sanitized = "".join(c for c in sanitized if c.isalnum() or c == "-")
     pending["suggested_name"] = sanitized
-    pending["city_display"] = None  # signals custom name — no city
+    pending["city_display"] = None
     PENDING_REQUESTS[request_id] = pending
 
     handle_confirm_create(request_id, pending.get("response_url", ""))
@@ -201,13 +189,12 @@ async def slack_actions(request: Request, background_tasks: BackgroundTasks):
 
         elif callback_id.startswith("edit_members_modal_"):
             request_id = callback_id.replace("edit_members_modal_", "")
-            selected = (
+            selected_ids = (
                 payload["view"]["state"]["values"]
                 .get("members_block", {})
-                .get("members_checkboxes", {})
-                .get("selected_options", [])
+                .get("members_select", {})
+                .get("selected_users", [])
             )
-            selected_ids = [opt["value"] for opt in selected]
             all_dart = get_dart_members()
             excluded = [m for m in all_dart if m not in selected_ids]
             if request_id in PENDING_REQUESTS:
